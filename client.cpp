@@ -1,57 +1,82 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <errno.h>
+#include <string.h>
 #include <netdb.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
-void error(const char *msg){
-    perror(msg);
-    exit(0);
+#define PORT            "6160"
+#define MAXDATASIZE     256
+
+void *get_in_addr(struct sockaddr *sa){
+    if(sa->sa_family == AF_INET){
+        return &(((struct sockaddr_in *) sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
 int main(int argc, char **argv){
-    int sockfd, portno, n;
-    char buf[256];
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
+    struct addrinfo hints, *servinfo, *p;
+    char s[INET6_ADDRSTRLEN];
+    int sock_fd, numbytes;
+    char buf[MAXDATASIZE];
+    int rv;
     
-    if(argc < 3){
-        fprintf(stderr, "Usage: %s {HOSTNAME} {PORT}.\n", argv[0]);
-        exit(0);
+
+    if(argc != 2){
+        fprintf(stderr, "Usage: %s {HOSTNAME}\n", argv[0]);
+        exit(1);
     }
 
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if(sockfd < 0){
-        error("[i]\tERROR: Cannot open socket.\n");
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if((rv = getaddrinfo(argv[1], PORT, &hints, &servinfo)) != 0){
+        fprintf(stderr, "[E]\tgetaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
     }
 
-    server = gethostbyname(argv[1]);
-    //
-    printf("%s\n", server->h_name);
-    //
-    if(server == NULL){
-        fprintf(stderr, "[i]\tERROR: Cannot find host.\n");
-        exit(0);
+    for(p = servinfo; p != NULL; p = p->ai_next){
+        if((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+            perror("[E]\tFailed to create socket.");
+            continue;
+        }
+
+        if(connect(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
+            close(sock_fd);
+            perror("[E]\tFailed to connect.");
+            continue;
+        }
+
+        break;
     }
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *) server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
-    serv_addr.sin_port = htons(portno);
-
-    printf("Please enter the meassge: ");
-    bzero(buf, 256);
-    fgets(buf, 255, stdin);
-    n = write(sockfd, buf, strlen(buf));
-    if(n < 0){
-        error("[i]\tERROR: Cannot read from socket.\n");
+    if(p == NULL){
+        fprintf(stderr, "[E]\tFailed to connect.\n");
+        return 2;
     }
-    printf("%s", buf);
+    
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *) p->ai_addr), s, sizeof(s));
+    printf("[I]\tConnecting to %s\n", s);
+    
+    freeaddrinfo(servinfo);
+
+    if((numbytes = recv(sock_fd, buf, MAXDATASIZE - 1, 0)) == -1){
+        perror("[E]\tCould not receive message (Too large).\n");
+        exit(1);
+    }
+    
+    buf[numbytes] = '\0';
+
+    printf("[M]\t'%s'\n", buf);
+
+    close(sock_fd);
 
     return 0;
-
 }
