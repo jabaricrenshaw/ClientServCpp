@@ -1,5 +1,5 @@
 # ClientServCpp
 
 # Resources
-https://beej.us/guide/bgnet/html/split/client-server-background.html#a-simple-stream-client
+https://beej.us/guide/bgnet/html/split/client-server-background.html#a-simple-stream-client<br>
 https://www.linuxhowtos.org/C_C++/socket.htm
