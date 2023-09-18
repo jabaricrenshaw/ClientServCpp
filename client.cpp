@@ -1,16 +1,13 @@
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <netdb.h>
-#include <sys/types.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#define PORT            "6160"
-#define MAXDATASIZE     256
+#define PORT "6160"
+#define BUF_SIZE 500
 
 void *get_in_addr(struct sockaddr *sa){
     if(sa->sa_family == AF_INET){
@@ -21,62 +18,66 @@ void *get_in_addr(struct sockaddr *sa){
 }
 
 int main(int argc, char **argv){
-    struct addrinfo hints, *servinfo, *p;
-    char s[INET6_ADDRSTRLEN];
-    int sock_fd, numbytes;
-    char buf[MAXDATASIZE];
-    int rv;
-    
+    int sockfd, s, nread;
+    char buf[BUF_SIZE], mesg[BUF_SIZE] = "I am the king.";;
+    size_t len;
+    struct addrinfo hints, *result, *rp;
 
     if(argc != 2){
-        fprintf(stderr, "Usage: %s {HOSTNAME}\n", argv[0]);
-        exit(1);
+        fprintf(stderr, "Usage is %s {HOSTNAME}.\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
+    memset(&buf, 0, sizeof(char) * BUF_SIZE);
     memset(&hints, 0, sizeof(hints));
+
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
 
-    if((rv = getaddrinfo(argv[1], PORT, &hints, &servinfo)) != 0){
-        fprintf(stderr, "[E]\tgetaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
+    if((s = getaddrinfo(argv[1], PORT, &hints, &result)) != 0){
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        exit(EXIT_FAILURE);
     }
 
-    for(p = servinfo; p != NULL; p = p->ai_next){
-        if((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-            perror("[E]\tFailed to create socket.");
+    for(rp = result; rp != NULL; rp = rp->ai_next){
+        if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1){
             continue;
         }
 
-        if(connect(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
-            close(sock_fd);
-            perror("[E]\tFailed to connect.");
-            continue;
+        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1){
+            break;
         }
 
-        break;
+        close(sockfd);
     }
 
-    if(p == NULL){
-        fprintf(stderr, "[E]\tFailed to connect.\n");
-        return 2;
-    }
-    
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *) p->ai_addr), s, sizeof(s));
-    printf("[I]\tConnecting to %s\n", s);
-    
-    freeaddrinfo(servinfo);
+    freeaddrinfo(result);
 
-    if((numbytes = recv(sock_fd, buf, MAXDATASIZE - 1, 0)) == -1){
-        perror("[E]\tCould not receive message (Too large).\n");
-        exit(1);
+    if(rp == NULL){
+        fprintf(stderr, "Could not connect.\n");
+        exit(EXIT_FAILURE);
     }
-    
-    buf[numbytes] = '\0';
 
+
+
+    /************************
+    * Read and write stage. *
+    ************************/
+
+    if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
+        fprintf(stderr, "Could not receive message (Too large).\n");
+    }
+
+    if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
+        fprintf(stderr, "Could not send message.\n");
+    }
+
+    buf[nread] = '\0';
     printf("[M]\t'%s'\n", buf);
 
-    close(sock_fd);
+    close(sockfd);
 
     return 0;
 }

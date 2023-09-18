@@ -1,118 +1,122 @@
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
 
-#define PORT            "6160"
-#define BACKLOG         0
-
-void sigchld_handler(int s){
-    //waitpid() might overwrite errno, so we save and restore it
-    int saved_errno = errno;
-
-    while(waitpid(-1, NULL, WNOHANG) > 0);
-    errno = saved_errno;
-}
+#define BUF_SIZE 500
+#define PORT "6160"
+#define BACKLOG 0
 
 void *get_in_addr(struct sockaddr *sa){
     if(sa->sa_family == AF_INET){
         return &(((struct sockaddr_in *) sa)->sin_addr);
     }
 
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
-int main(void){
-    struct addrinfo hints, *servinfo, *p;
-    struct sockaddr_storage cli_addr;       //Client information
-    char s[INET6_ADDRSTRLEN];
-    struct sigaction sa;
-    int sock_fd, new_fd;                    //Listen on sock_fd, New connections on new_fd
-    socklen_t sin_size;
-    int yes = 1;
-    int rv;
-
+int main(int argc, char **argv){
+    char buf[BUF_SIZE], dbg[INET6_ADDRSTRLEN], rec[BUF_SIZE], mesg[BUF_SIZE] = "Hello, World!";
+    struct addrinfo hints, *result, *rp;
+    struct sockaddr_storage peer_addr;
+    int sockfd, newfd, s, nread;
+    socklen_t peer_addrlen;
+    
+    memset(&buf, 0, sizeof(char) * BUF_SIZE);
+    memset(&dbg, 0, sizeof(char) * INET6_ADDRSTRLEN);
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;            //Use IP of machine
 
-    if((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0){
-        fprintf(stderr, "[E]\tgetaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
+    hints.ai_family = AF_UNSPEC; /* Allow IPV4 and IPV6 connections */
+    hints.ai_socktype = SOCK_STREAM; /* TCP Socket */
+    hints.ai_flags = AI_PASSIVE; /* Any wildcard IP address */
+    hints.ai_protocol = 0;
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+
+    if((s = getaddrinfo(NULL, PORT, &hints, &result)) != 0){
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        exit(EXIT_FAILURE);
     }
 
-    for(p = servinfo; p != NULL; p = p->ai_next){
-        if((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-            perror("[E]\tCould not create socket.\n");
+    /*
+        getaddrinfo() returns a list of address structures.
+        Try each address until we successfully bind(2).
+        If socket(2) or bind(2) fails, we close the socket
+        and try the next address. 
+    */
+
+    for(rp = result; rp != NULL; rp = rp->ai_next){
+        if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1){
+            fprintf(stderr, "Could not create socket.\n");
             continue;
         }
 
-        if(setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
-            close(sock_fd);
-            perror("setsockopt");
-            exit(1);
+        if(bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0){
+            break; /* Success */
         }
 
-        if(bind(sock_fd, p->ai_addr, p->ai_addrlen) == -1){
-            close(sock_fd);
-            perror("[E]\tFailed to bind.\n");
-            continue;
-        }
-
-        break;
+        close(sockfd);
     }
 
-    freeaddrinfo(servinfo);                 //Finished with this structure
+    freeaddrinfo(result); /* No longer needed */
 
-    if(p == NULL){
-        fprintf(stderr, "[E]\tFailed to bind.\n");
+    if(rp == NULL){
+        fprintf(stderr, "Could not bind\n");
+        exit(EXIT_FAILURE);
     }
 
-    if(listen(sock_fd, BACKLOG) == -1){
-        perror("[E]\tFailed to listen.\n");
-        exit(1);
+    if(listen(sockfd, BACKLOG) == -1){
+        fprintf(stderr, "Failed to listen\n");
+        exit(EXIT_FAILURE);
     }
 
-    sa.sa_handler = sigchld_handler;        //Kill dead processes
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if(sigaction(SIGCHLD, &sa, NULL) == -1){
-        perror("[E]\tsigaction\n");
-        exit(1);
-    }
+
+
+
+
+    /************************
+    * Read and write stage. *
+    ************************/
 
     printf("[I]\tWaiting for connections...\n");
 
     while(1){
-        sin_size = sizeof(cli_addr);
-        new_fd = accept(sock_fd, (struct sockaddr *) &cli_addr, &sin_size);
-        if(new_fd == -1){
-            perror("accept");
+        peer_addrlen = sizeof(peer_addr);
+        newfd = accept(sockfd, (struct sockaddr *) &peer_addr, &peer_addrlen);
+        if(newfd == -1){
+            fprintf(stderr, "accept\n");
             continue;
         }
 
-        inet_ntop(cli_addr.ss_family, get_in_addr((struct sockaddr *) &cli_addr), s, sizeof(s));
-        printf("[I]\tNew connection from %s\n", s);
+        inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, sizeof(dbg));
+        printf("[I]\tNew connection from %s\n", dbg);
 
         if(!fork()){
-            close(sock_fd);
-            if(send(new_fd, "Hello, world!", 13, 0) == -1){
-                perror("send");
+            close(sockfd);
+
+            if(send(newfd, mesg, sizeof(mesg), 0) == -1){
+                fprintf(stderr, "Could not send to client.\n");
             }
-            close(new_fd);
+
+            if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
+                fprintf(stderr, "Could not receive from client (Message too large).\n");
+            }
+
+            rec[nread] = '\0';
+            printf("[M]\t'%s'\n", rec);
+
+            close(newfd);
             exit(0);
         }
 
-        close(new_fd);
+        close(newfd);
     }
+
+    return 0;
 
 }
