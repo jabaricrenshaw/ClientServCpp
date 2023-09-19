@@ -4,14 +4,18 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
-#include <thread>
 
+#include <thread>
 #include <unistd.h>
 
 #define ADDRESS "127.0.0.1"
 #define PORT "6160"
 #define BUF_SIZE 500
+
+/*  This is a flag to tell the read thread (working in f_read) to stop
+*   when the client is finished writing and would like to disconnect.
+*/
+int THREADQ = 1; 
 
 void *get_in_addr(struct sockaddr *sa){
     if(sa->sa_family == AF_INET){
@@ -21,9 +25,37 @@ void *get_in_addr(struct sockaddr *sa){
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+void f_read(int sockfd){
+    char *buf = (char *)calloc(BUF_SIZE, sizeof(char));
+    int nread;
+    while(1 && THREADQ){
+        if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
+            fprintf(stderr, "Could not receive message.\n");
+        }else if(strlen(buf) != 0){
+            buf[nread] = '\0';
+            printf("[M]\t'%s'\n", buf);
+            memset(buf, 0, sizeof(buf));
+        }
+    }
+}
+
+void f_write(int sockfd){
+    char mesg[BUF_SIZE];
+    while(strcmp(mesg, "Q") != 0){
+        memset(mesg, 0, sizeof(mesg));
+        printf("Enter your message: ");
+        scanf(" %[^\n]", mesg);
+
+        if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
+            fprintf(stderr, "Could not send message.\n");
+        }
+    }
+
+    THREADQ = 0;
+}
+
 int main(int argc, char **argv){
-    int sockfd, s, nread;
-    char buf[BUF_SIZE], mesg[BUF_SIZE];
+    int sockfd, s;
     size_t len;
     struct addrinfo hints, *result, *rp;
 
@@ -34,7 +66,6 @@ int main(int argc, char **argv){
     }
     */
 
-    memset(&buf, 0, sizeof(char) * BUF_SIZE);
     memset(&hints, 0, sizeof(hints));
 
     hints.ai_family = AF_UNSPEC;
@@ -68,28 +99,20 @@ int main(int argc, char **argv){
 
 
 
-    /************************
-    * Read and write stage. *
-    ************************/
+    /****************************
+    *   Read and write stage.   *
+    *****************************/
+    /*  I figured creating threads would allow
+    *   the client to read/write at the same time.
+    *
+    *   It works, 
+    *   I am not confident this is thread safe and such...     
+    */
 
-    while(strcmp(mesg, "Q") != 0){
-        memset(mesg, 0, sizeof(mesg));
-        printf("Enter your message: ");
-        scanf(" %[^\n]", mesg);
-
-        if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
-            fprintf(stderr, "Could not send message.\n");
-        }
-
-        if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
-            fprintf(stderr, "Could not receive message.\n");
-            fprintf(stderr, "Current buffer: %s", buf);
-        }else if(strlen(buf) != 0){
-            buf[nread] = '\0';
-            printf("[M]\t'%s'\n", buf);
-            memset(buf, 0, sizeof(buf));
-        }
-    }
+    std::thread t_read(f_read, sockfd);
+    std::thread t_write(f_write, sockfd);
+    t_read.join();
+    t_write.join();
 
     printf("Disconnecting!\n");
     close(sockfd);

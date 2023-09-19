@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+#include <thread>
+
 #define BUF_SIZE 500
 #define PORT "6160"
 #define BACKLOG 0
@@ -34,33 +36,25 @@ void handle(int newfd){
 
         if(send(newfd, mesg, sizeof(mesg), 0) == -1){
             fprintf(stderr, "Could not send to client.\n");
-        }else{
-            printf("%s", mesg);
         }
     }
-
-    /*
-    if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
-        fprintf(stderr, "Could not receive from client (Message too large).\n");
-    }
-
-    rec[nread] = '\0';
-    printf("[M]\t'%s'\n", rec);
-    */
-
-   //memset(mesg, 0, sizeof(char) * BUF_SIZE);
 }
 
+void f_read(int newfd){
+
+}
+
+void f_write(int newfd){
+
+}
 
 int main(int argc, char **argv){
-    char buf[BUF_SIZE], dbg[INET6_ADDRSTRLEN];
+    char *dbg = (char *)calloc(INET6_ADDRSTRLEN, sizeof(char));
     struct addrinfo hints, *result, *rp;
     struct sockaddr_storage peer_addr;
     int sockfd, newfd, s;
     socklen_t peer_addrlen;
     
-    memset(&buf, 0, sizeof(char) * BUF_SIZE);
-    memset(&dbg, 0, sizeof(char) * INET6_ADDRSTRLEN);
     memset(&hints, 0, sizeof(hints));
 
     hints.ai_family = AF_UNSPEC; /* Allow IPV4 and IPV6 connections */
@@ -98,19 +92,10 @@ int main(int argc, char **argv){
 
     freeaddrinfo(result); /* No longer needed */
 
-    if(rp == NULL){
-        fprintf(stderr, "Could not bind\n");
-        exit(EXIT_FAILURE);
-    }
-
     if(listen(sockfd, BACKLOG) == -1){
         fprintf(stderr, "Failed to listen\n");
         exit(EXIT_FAILURE);
     }
-
-
-
-
 
     /************************
     * Read and write stage. *
@@ -141,6 +126,26 @@ int main(int argc, char **argv){
             close(newfd);
         }
     }
+
+    /*
+    If we create threads to read and write a the same time
+    like we did for the client. Then the parent will continue
+    execution in the loop to accept new clients.
+
+    Will the threads be overwritten here? Should we keep track
+    of which thread pair are assigned to each client that connnects?
+
+    I would only like for the server to give information that the client
+    requests, or perform "sudo-like" operations to disconnect all,
+    show who is connected, and globally announce... More on this in the future.
+
+    Fa later...
+
+    std::thread t_read(f_read, newfd);
+    std::thread t_write(f_write, newfd);
+    t_read.join();
+    t_write.join();
+    */
 
     close(sockfd);
 
