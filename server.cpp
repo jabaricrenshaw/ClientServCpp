@@ -19,11 +19,44 @@ void *get_in_addr(struct sockaddr *sa){
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
+void handle(int newfd){
+    int nread;
+    char rec[BUF_SIZE], mesg[BUF_SIZE] = "Hello, World!";
+
+    while(strcmp(rec, "Q") != 0){
+        memset(&rec, 0, sizeof(char) * BUF_SIZE);
+        if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
+            fprintf(stderr, "Could not receive from client.\n");
+        }else if(strlen(rec) != 0){
+            rec[nread] = '\0';
+            printf("[M]\t'%s'\n", rec);
+        }
+
+        if(send(newfd, mesg, sizeof(mesg), 0) == -1){
+            fprintf(stderr, "Could not send to client.\n");
+        }else{
+            printf("%s", mesg);
+        }
+    }
+
+    /*
+    if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
+        fprintf(stderr, "Could not receive from client (Message too large).\n");
+    }
+
+    rec[nread] = '\0';
+    printf("[M]\t'%s'\n", rec);
+    */
+
+   //memset(mesg, 0, sizeof(char) * BUF_SIZE);
+}
+
+
 int main(int argc, char **argv){
-    char buf[BUF_SIZE], dbg[INET6_ADDRSTRLEN], rec[BUF_SIZE], mesg[BUF_SIZE] = "Hello, World!";
+    char buf[BUF_SIZE], dbg[INET6_ADDRSTRLEN];
     struct addrinfo hints, *result, *rp;
     struct sockaddr_storage peer_addr;
-    int sockfd, newfd, s, nread;
+    int sockfd, newfd, s;
     socklen_t peer_addrlen;
     
     memset(&buf, 0, sizeof(char) * BUF_SIZE);
@@ -83,39 +116,33 @@ int main(int argc, char **argv){
     * Read and write stage. *
     ************************/
 
-    printf("[I]\tWaiting for connections...\n");
-
     while(1){
         peer_addrlen = sizeof(peer_addr);
+        printf("[I]\tWaiting for connections...\n");
         newfd = accept(sockfd, (struct sockaddr *) &peer_addr, &peer_addrlen);
         if(newfd == -1){
             fprintf(stderr, "accept\n");
-            continue;
+            //continue;
         }
 
         inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, sizeof(dbg));
         printf("[I]\tNew connection from %s\n", dbg);
 
-        if(!fork()){
+        
+        pid_t pid = fork();
+        //Child process starts
+        if(pid < 0){
+            fprintf(stderr, "Could not accept new client.\n");
+        }else if(pid == 0){
             close(sockfd);
-
-            if(send(newfd, mesg, sizeof(mesg), 0) == -1){
-                fprintf(stderr, "Could not send to client.\n");
-            }
-
-            if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
-                fprintf(stderr, "Could not receive from client (Message too large).\n");
-            }
-
-            rec[nread] = '\0';
-            printf("[M]\t'%s'\n", rec);
-
-            close(newfd);
+            handle(newfd);
             exit(0);
+        }else{
+            close(newfd);
         }
-
-        close(newfd);
     }
+
+    close(sockfd);
 
     return 0;
 

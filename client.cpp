@@ -5,7 +5,11 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <thread>
 
+#include <unistd.h>
+
+#define ADDRESS "127.0.0.1"
 #define PORT "6160"
 #define BUF_SIZE 500
 
@@ -19,14 +23,16 @@ void *get_in_addr(struct sockaddr *sa){
 
 int main(int argc, char **argv){
     int sockfd, s, nread;
-    char buf[BUF_SIZE], mesg[BUF_SIZE] = "I am the king.";;
+    char buf[BUF_SIZE], mesg[BUF_SIZE];
     size_t len;
     struct addrinfo hints, *result, *rp;
 
+    /*
     if(argc != 2){
         fprintf(stderr, "Usage is %s {HOSTNAME}.\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+    */
 
     memset(&buf, 0, sizeof(char) * BUF_SIZE);
     memset(&hints, 0, sizeof(hints));
@@ -36,7 +42,7 @@ int main(int argc, char **argv){
     hints.ai_flags = 0;
     hints.ai_protocol = 0;
 
-    if((s = getaddrinfo(argv[1], PORT, &hints, &result)) != 0){
+    if((s = getaddrinfo(ADDRESS, PORT, &hints, &result)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
         exit(EXIT_FAILURE);
     }
@@ -66,18 +72,27 @@ int main(int argc, char **argv){
     * Read and write stage. *
     ************************/
 
-    if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
-        fprintf(stderr, "Could not receive message (Too large).\n");
+    while(strcmp(mesg, "Q") != 0){
+        memset(mesg, 0, sizeof(mesg));
+        printf("Enter your message: ");
+        scanf(" %[^\n]", mesg);
+
+        if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
+            fprintf(stderr, "Could not send message.\n");
+        }
+
+        if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
+            fprintf(stderr, "Could not receive message.\n");
+            fprintf(stderr, "Current buffer: %s", buf);
+        }else if(strlen(buf) != 0){
+            buf[nread] = '\0';
+            printf("[M]\t'%s'\n", buf);
+            memset(buf, 0, sizeof(buf));
+        }
     }
 
-    if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
-        fprintf(stderr, "Could not send message.\n");
-    }
-
-    buf[nread] = '\0';
-    printf("[M]\t'%s'\n", buf);
-
+    printf("Disconnecting!\n");
     close(sockfd);
-
+    
     return 0;
 }
