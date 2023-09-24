@@ -14,29 +14,21 @@
 #define BACKLOG 0
 
 void *get_in_addr(struct sockaddr *sa){
-    if(sa->sa_family == AF_INET){
-        return &(((struct sockaddr_in *) sa)->sin_addr);
-    }
-
+    if(sa->sa_family == AF_INET) return &(((struct sockaddr_in *) sa)->sin_addr);
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
 void handle(int newfd){
     int nread;
-    char *rec = new char[BUF_SIZE + 1];
-    char *mesg = new char[BUF_SIZE + 1];
+    char *rec = new char[BUF_SIZE + 1], *mesg = new char[BUF_SIZE + 1];
     strcpy(mesg, "Hello, World!");
 
     while(1){
-        memset(rec, 0, sizeof(rec));
+        memset(rec, 0, BUF_SIZE);
         if( (nread = recv(newfd, rec, BUF_SIZE, 0)) == -1 ){
             fprintf(stderr, "Could not receive from client.\n");
         }else if(strlen(rec) != 0){
-            if(strcmp(rec, "!Disconnect") == 0){
-                printf("[D]\tClient disconnected.\n");
-                break;
-            }
-            //mesg[strlen(mesg)] = '\n';
+            if(strcmp(rec, "!Disconnect") == 0) break;
             printf("[M]\t'%s'\n", rec);
         }
 
@@ -45,10 +37,12 @@ void handle(int newfd){
         }
     }
 
+    printf("[D]\tClient disconnected.\n");
     delete[] rec;
     delete[] mesg;
 }
 
+/*
 void f_read(int newfd){
 
 }
@@ -56,13 +50,15 @@ void f_read(int newfd){
 void f_write(int newfd){
 
 }
+*/
 
 int main(int argc, char **argv){
-    char *dbg = new char[BUF_SIZE + 1];
     struct addrinfo hints, *result, *rp;
     struct sockaddr_storage peer_addr;
-    int sockfd, newfd, s;
     socklen_t peer_addrlen;
+    int sockfd, newfd, s;
+    char *dbg = new char[BUF_SIZE + 1];
+    
     
     memset(&hints, 0, sizeof(hints));
 
@@ -92,9 +88,8 @@ int main(int argc, char **argv){
             continue;
         }
 
-        if(bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0){
-            break; /* Success */
-        }
+        /* Success */
+        if(bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0) break; 
 
         close(sockfd);
     }
@@ -112,17 +107,17 @@ int main(int argc, char **argv){
 
     while(1){
         peer_addrlen = sizeof(peer_addr);
+
         printf("[I]\tWaiting for connections...\n");
         newfd = accept(sockfd, (struct sockaddr *) &peer_addr, &peer_addrlen);
         if(newfd == -1){
-            fprintf(stderr, "accept\n");
-            //continue;
+            fprintf(stderr, "[E]\tCould not accept client.\n");
+            break;
         }
 
         inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, INET6_ADDRSTRLEN);
         printf("[I]\tNew connection from %s\n", dbg);
 
-        
         pid_t pid = fork();
         //Child process starts
         if(pid < 0){

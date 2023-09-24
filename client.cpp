@@ -15,15 +15,7 @@
 /*  This is a flag to tell the read thread (working in f_read) to stop
 *   when the client is finished writing and would like to disconnect.
 */
-int THREADQ = 1; 
-
-void *get_in_addr(struct sockaddr *sa){
-    if(sa->sa_family == AF_INET){
-        return &(((struct sockaddr_in *) sa)->sin_addr);
-    }
-
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
+int THREADQ = 1;
 
 void f_read(int sockfd){
     char *buf = new char[BUF_SIZE + 1];
@@ -35,9 +27,8 @@ void f_read(int sockfd){
         }else if(THREADQ && (nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
             fprintf(stderr, "Could not receive message.\n");
         }else if(strlen(buf) != 0){
-            //buf[strlen(buf)] = '\n';
             printf("[M]\t'%s'\n", buf);
-            memset(buf, 0, sizeof(buf));
+            memset(buf, 0, BUF_SIZE);
         }
     }
 
@@ -48,7 +39,7 @@ void f_write(int sockfd){
     char *mesg = new char[BUF_SIZE + 1];
 
     while(1){
-        memset(mesg, 0, sizeof(mesg));
+        memset(mesg, 0, BUF_SIZE);
         printf("Enter your message: ");
         scanf(" %[^\n]", mesg);
         
@@ -58,7 +49,7 @@ void f_write(int sockfd){
         *   message is not delivered...
         */
         if(send(sockfd, mesg, strlen(mesg), 0) == -1){
-            fprintf(stderr, "Could not send message.\n");
+            fprintf(stderr, "[E]\tCould not send message.\n");
         }
 
         if(strcmp(mesg, "!Disconnect") == 0){
@@ -73,7 +64,6 @@ void f_write(int sockfd){
 
 int main(int argc, char **argv){
     int sockfd, s;
-    size_t len;
     struct addrinfo hints, *result, *rp;
 
     /*
@@ -100,9 +90,7 @@ int main(int argc, char **argv){
             continue;
         }
 
-        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1){
-            break;
-        }
+        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1) break;
 
         close(sockfd);
     }

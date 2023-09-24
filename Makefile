@@ -1,10 +1,21 @@
-all: client server;
+CC = g++
+LOADLIBES = -lpthread
+CXXFLAGS = -Wall -O2 -g
+
+SRC_C = client.cpp
+SRC_S = server.cpp
+SRC = $(SRC_C) $(SRC_S)
+BUILD = $(SRC:.cpp=)
+OBJS = $(SRC:.cpp=.o)
+AUX = $(SRC:.cpp=.h)
+
+all: $(OBJS) $(SRC) client server;
 
 client: client.cpp
-	g++ -lpthread client.cpp -o client
+	$(CC) $(LOADLIBES) $(SRC_C) -o client
 
 server: server.cpp
-	g++ -lpthread server.cpp -o server
+	$(CC) $(LOADLIBES) $(SRC_S) -o server
 
 clean:
-	rm -rf client server client.o server.o
+	rm -f $(OBJS) $(AUX) $(BUILD)
