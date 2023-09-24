@@ -23,21 +23,30 @@ void *get_in_addr(struct sockaddr *sa){
 
 void handle(int newfd){
     int nread;
-    char rec[BUF_SIZE], mesg[BUF_SIZE] = "Hello, World!";
+    char *rec = new char[BUF_SIZE + 1];
+    char *mesg = new char[BUF_SIZE + 1];
+    strcpy(mesg, "Hello, World!");
 
-    while(strcmp(rec, "Q") != 0){
-        memset(&rec, 0, sizeof(char) * BUF_SIZE);
-        if( (nread = recv(newfd, rec, sizeof(rec) - 1, 0)) == -1 ){
+    while(1){
+        memset(rec, 0, sizeof(rec));
+        if( (nread = recv(newfd, rec, BUF_SIZE, 0)) == -1 ){
             fprintf(stderr, "Could not receive from client.\n");
         }else if(strlen(rec) != 0){
-            rec[nread] = '\0';
+            if(strcmp(rec, "!Disconnect") == 0){
+                printf("[D]\tClient disconnected.\n");
+                break;
+            }
+            //mesg[strlen(mesg)] = '\n';
             printf("[M]\t'%s'\n", rec);
         }
 
-        if(send(newfd, mesg, sizeof(mesg), 0) == -1){
+        if(send(newfd, mesg, strlen(mesg), 0) == -1){
             fprintf(stderr, "Could not send to client.\n");
         }
     }
+
+    delete[] rec;
+    delete[] mesg;
 }
 
 void f_read(int newfd){
@@ -49,7 +58,7 @@ void f_write(int newfd){
 }
 
 int main(int argc, char **argv){
-    char *dbg = (char *)calloc(INET6_ADDRSTRLEN, sizeof(char));
+    char *dbg = new char[BUF_SIZE + 1];
     struct addrinfo hints, *result, *rp;
     struct sockaddr_storage peer_addr;
     int sockfd, newfd, s;
@@ -110,7 +119,7 @@ int main(int argc, char **argv){
             //continue;
         }
 
-        inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, sizeof(dbg));
+        inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, INET6_ADDRSTRLEN);
         printf("[I]\tNew connection from %s\n", dbg);
 
         
@@ -128,7 +137,7 @@ int main(int argc, char **argv){
     }
 
     /*
-    If we create threads to read and write a the same time
+    If we create threads to read and write at the same time
     like we did for the client. Then the parent will continue
     execution in the loop to accept new clients.
 
@@ -148,6 +157,10 @@ int main(int argc, char **argv){
     */
 
     close(sockfd);
+
+    delete[] dbg;
+    free(result);
+    free(rp);
 
     return 0;
 

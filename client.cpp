@@ -26,31 +26,48 @@ void *get_in_addr(struct sockaddr *sa){
 }
 
 void f_read(int sockfd){
-    char *buf = (char *)calloc(BUF_SIZE, sizeof(char));
+    char *buf = new char[BUF_SIZE + 1];
     int nread;
-    while(1 && THREADQ){
-        if((nread = recv(sockfd, buf, BUF_SIZE - 1, 0)) == -1){
+
+    while(1){
+        if(!THREADQ){
+            break;
+        }else if(THREADQ && (nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
             fprintf(stderr, "Could not receive message.\n");
         }else if(strlen(buf) != 0){
-            buf[nread] = '\0';
+            //buf[strlen(buf)] = '\n';
             printf("[M]\t'%s'\n", buf);
             memset(buf, 0, sizeof(buf));
         }
     }
+
+    delete[] buf;
 }
 
 void f_write(int sockfd){
-    char mesg[BUF_SIZE];
-    while(strcmp(mesg, "Q") != 0){
+    char *mesg = new char[BUF_SIZE + 1];
+
+    while(1){
         memset(mesg, 0, sizeof(mesg));
         printf("Enter your message: ");
         scanf(" %[^\n]", mesg);
-
-        if(send(sockfd, mesg, sizeof(mesg), 0) == -1){
+        
+        /*
+        *   If connection is lost with the server, the
+        *   client will only realize after the second
+        *   message is not delivered...
+        */
+        if(send(sockfd, mesg, strlen(mesg), 0) == -1){
             fprintf(stderr, "Could not send message.\n");
         }
-    }
 
+        if(strcmp(mesg, "!Disconnect") == 0){
+            printf("[D]\tDisconnecting!.\n");
+            break;
+        }
+    }
+    
+    delete[] mesg;
     THREADQ = 0;
 }
 
@@ -97,8 +114,7 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
-
-
+    printf("Connected to %s on port %s.\n", ADDRESS, PORT);
     /****************************
     *   Read and write stage.   *
     *****************************/
