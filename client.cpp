@@ -6,6 +6,7 @@
 #include <sys/types.h>
 
 #include <thread>
+#include <atomic>
 #include <unistd.h>
 
 #define ADDRESS "127.0.0.1"
@@ -17,14 +18,16 @@
 */
 int THREADQ = 1;
 
-void f_read(int sockfd){
+void f_read(int sockfd, std::atomic<bool> complete){
     char *buf = new char[BUF_SIZE + 1];
     int nread;
 
     while(1){
-        if(!THREADQ){
+        if(complete.load()){
             break;
-        }else if(THREADQ && (nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
+        }
+
+        if((nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
             fprintf(stderr, "Could not receive message.\n");
         }else if(strlen(buf) != 0){
             printf("[M]\t'%s'\n", buf);
@@ -33,9 +36,10 @@ void f_read(int sockfd){
     }
 
     delete[] buf;
+    return;
 }
 
-void f_write(int sockfd){
+void f_write(int sockfd, std::atomic<bool> complete){
     char *mesg = new char[BUF_SIZE + 1];
 
     while(1){
@@ -54,12 +58,14 @@ void f_write(int sockfd){
 
         if(strcmp(mesg, "!Disconnect") == 0){
             printf("[D]\tDisconnecting!.\n");
+            complete.store(true);
             break;
         }
     }
     
     delete[] mesg;
     THREADQ = 0;
+    return;
 }
 
 int main(int argc, char **argv){
@@ -113,12 +119,12 @@ int main(int argc, char **argv){
     *   I am not confident this is thread safe and such...     
     */
 
-    std::thread t_read(f_read, sockfd);
-    std::thread t_write(f_write, sockfd);
+    std::atomic<bool> complete = false;
+    std::thread t_read(f_read, sockfd, &complete);
+    std::thread t_write(f_write, sockfd, &complete);
     t_read.join();
     t_write.join();
 
-    printf("Disconnecting!\n");
     close(sockfd);
     
     return 0;
