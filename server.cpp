@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 
 #include <thread>
+#include <map>
 
 #define BUF_SIZE 500
 #define PORT "6160"
@@ -18,7 +19,7 @@ void *get_in_addr(struct sockaddr *sa){
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
-void handle(int newfd){
+void handle(int newfd, char *cliname, std::map<char *, int> clifd){
     int nread;
     char *rec = new char[BUF_SIZE + 1], *mesg = new char[BUF_SIZE + 1];
     strcpy(mesg, "Hello, World!");
@@ -27,8 +28,12 @@ void handle(int newfd){
         memset(rec, 0, BUF_SIZE);
         if( (nread = recv(newfd, rec, BUF_SIZE, 0)) == -1 ){
             fprintf(stderr, "Could not receive from client.\n");
-        }else if(strlen(rec) != 0){
-            if(strcmp(rec, "!Disconnect") == 0) break;
+        }else if(strlen(rec) > 0){
+            if(strcmp(rec, "!Disconnect") == 0){
+                clifd.erase(clifd.find(cliname));
+                printf("[D]\tClient disconnected!\n");
+                break;
+            }
             printf("[M]\t'%s'\n", rec);
         }
 
@@ -37,7 +42,6 @@ void handle(int newfd){
         }
     }
 
-    printf("[D]\tClient disconnected.\n");
     delete[] rec;
     delete[] mesg;
 }
@@ -46,11 +50,28 @@ void handle(int newfd){
 void f_read(int newfd){
 
 }
-
-void f_write(int newfd){
-
-}
 */
+
+void f_write(std::map<char *, int> clifd, int newfd){
+    char *mesg = new char[BUF_SIZE + 1];
+    
+    while(1){
+        memset(mesg, 0, BUF_SIZE);
+        printf("Enter your message: ");
+        scanf(" %[^\n]", mesg);
+
+        printf("Loop starting... Client size = %ld\n", clifd.size());
+        for(auto it = clifd.begin(); it != clifd.end(); ++it){
+            printf("CLIFD DEBUG: %s\t%i\n", it->first, it->second);
+            if(send(it->second, mesg, strlen(mesg), 0) == -1){
+                fprintf(stderr, "[E]\tCould not send message.\n");
+            }
+        }
+    }
+
+    delete[] mesg;
+}
+
 
 int main(int argc, char **argv){
     struct addrinfo hints, *result, *rp;
@@ -58,7 +79,6 @@ int main(int argc, char **argv){
     socklen_t peer_addrlen;
     int sockfd, newfd, s;
     char *dbg = new char[BUF_SIZE + 1];
-    
     
     memset(&hints, 0, sizeof(hints));
 
@@ -105,6 +125,8 @@ int main(int argc, char **argv){
     * Read and write stage. *
     ************************/
 
+    std::map<char*, int> clifd;
+    std::thread t_write;
     while(1){
         peer_addrlen = sizeof(peer_addr);
 
@@ -117,18 +139,33 @@ int main(int argc, char **argv){
 
         inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, INET6_ADDRSTRLEN);
         printf("[I]\tNew connection from %s\n", dbg);
-
+        
         pid_t pid = fork();
         //Child process starts
         if(pid < 0){
             fprintf(stderr, "Could not accept new client.\n");
         }else if(pid == 0){
             close(sockfd);
-            handle(newfd);
+            handle(newfd, dbg, clifd);
             exit(0);
         }else{
             close(newfd);
         }
+
+        /*
+        This does not work after forking because we use close(sockfd).
+        Figure out how to close sockfd properly so that we may us the thread
+        to write to clients.
+
+        Also, does when does newfd need to be closed? 
+
+
+        clifd.emplace(dbg, newfd);
+        if(!t_write.joinable()){
+            t_write = std::thread{ f_write, clifd, newfd };
+        }
+        */
+        
     }
 
     /*
@@ -150,6 +187,8 @@ int main(int argc, char **argv){
     t_read.join();
     t_write.join();
     */
+
+    t_write.join();
 
     close(sockfd);
 
