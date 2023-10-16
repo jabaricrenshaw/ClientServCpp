@@ -168,12 +168,11 @@ int main(int argc, char **argv){
                 conn.erase(conn.begin() + i);
             }
         }
-
         conn.emplace_back(client{ std::thread(f_read, newfd), dbg });
         /*
         Remove clients who are no longer connected.
         Maybe polling using SYN/ACK will work.
-        Remove certain client from vector on explicit !Disconnect
+        DONE: Remove certain client from vector on explicit !Disconnect
         Data is not now set up to get this done
         Silly client struct...
         */
