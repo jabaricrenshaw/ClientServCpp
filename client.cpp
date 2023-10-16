@@ -16,17 +16,16 @@
 /*  This is a flag to tell the read thread (working in f_read) to stop
 *   when the client is finished writing and would like to disconnect.
 */
-int THREADQ = 1;
 
-void f_read(int sockfd, std::atomic<bool> complete){
+void f_read(int sockfd, std::atomic<bool> &complete){
     char *buf = new char[BUF_SIZE + 1];
     int nread;
 
-    while(1){
-        if(complete.load()){
-            break;
-        }
-
+    /*
+    recv(...) is currently blocking and will not allow the thread 
+    to continue execution for the return and exit case. 
+    */
+    while(complete.load() == false){
         if((nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
             fprintf(stderr, "Could not receive message.\n");
         }else if(strlen(buf) != 0){
@@ -39,7 +38,7 @@ void f_read(int sockfd, std::atomic<bool> complete){
     return;
 }
 
-void f_write(int sockfd, std::atomic<bool> complete){
+void f_write(int sockfd, std::atomic<bool> &complete){
     char *mesg = new char[BUF_SIZE + 1];
 
     while(1){
@@ -57,14 +56,13 @@ void f_write(int sockfd, std::atomic<bool> complete){
         }
 
         if(strcmp(mesg, "!Disconnect") == 0){
-            printf("[D]\tDisconnecting!.\n");
+            printf("[D]\tDisconnecting!\n");
             complete.store(true);
             break;
         }
     }
     
     delete[] mesg;
-    THREADQ = 0;
     return;
 }
 
@@ -119,9 +117,9 @@ int main(int argc, char **argv){
     *   I am not confident this is thread safe and such...     
     */
 
-    std::atomic<bool> complete = false;
-    std::thread t_read(f_read, sockfd, &complete);
-    std::thread t_write(f_write, sockfd, &complete);
+    std::atomic<bool> complete(false);
+    std::thread t_read(f_read, sockfd, std::ref(complete));
+    std::thread t_write(f_write, sockfd, std::ref(complete));
     t_read.join();
     t_write.join();
 
