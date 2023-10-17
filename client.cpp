@@ -6,7 +6,6 @@
 #include <sys/types.h>
 
 #include <thread>
-#include <atomic>
 #include <unistd.h>
 
 #define ADDRESS "127.0.0.1"
@@ -17,28 +16,32 @@
 *   when the client is finished writing and would like to disconnect.
 */
 
-void f_read(int sockfd, std::atomic<bool> &complete){
-    char *buf = new char[BUF_SIZE + 1];
+void f_read(int sockfd){
+    char *rec = new char[BUF_SIZE + 1];
     int nread;
 
     /*
-    recv(...) is currently blocking and will not allow the thread 
-    to continue execution for the return and exit case. 
+    Note: recv(...) blocks inside of this thread, waiting for
+    message from server.
     */
-    while(complete.load() == false){
-        if((nread = recv(sockfd, buf, BUF_SIZE, 0)) == -1){
+    while(1){
+        memset(rec, 0, BUF_SIZE);
+
+        if((nread = recv(sockfd, rec, BUF_SIZE, 0)) != -1 && strlen(rec) > 0){
+            if(strcmp(rec, "!Disconnect") == 0)
+                break;
+            printf("[M]\t'%s'\n", rec);
+        }else if(nread == -1){
             fprintf(stderr, "Could not receive message.\n");
-        }else if(strlen(buf) != 0){
-            printf("[M]\t'%s'\n", buf);
-            memset(buf, 0, BUF_SIZE);
         }
+
     }
 
-    delete[] buf;
+    delete[] rec;
     return;
 }
 
-void f_write(int sockfd, std::atomic<bool> &complete){
+void f_write(int sockfd){
     char *mesg = new char[BUF_SIZE + 1];
 
     while(1){
@@ -51,13 +54,11 @@ void f_write(int sockfd, std::atomic<bool> &complete){
         *   client will only realize after the second
         *   message is not delivered...
         */
-        if(send(sockfd, mesg, strlen(mesg), 0) == -1){
+        if(send(sockfd, mesg, strlen(mesg), 0) == -1)
             fprintf(stderr, "[E]\tCould not send message.\n");
-        }
-
+        
         if(strcmp(mesg, "!Disconnect") == 0){
             printf("[D]\tDisconnecting!\n");
-            complete.store(true);
             break;
         }
     }
@@ -71,6 +72,7 @@ int main(int argc, char **argv){
     struct addrinfo hints, *result, *rp;
 
     /*
+    Need for defining IP address of server later
     if(argc != 2){
         fprintf(stderr, "Usage is %s {HOSTNAME}.\n", argv[0]);
         exit(EXIT_FAILURE);
@@ -90,11 +92,11 @@ int main(int argc, char **argv){
     }
 
     for(rp = result; rp != NULL; rp = rp->ai_next){
-        if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1){
+        if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1)
             continue;
-        }
 
-        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1) break;
+        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1)
+            break;
 
         close(sockfd);
     }
@@ -117,9 +119,8 @@ int main(int argc, char **argv){
     *   I am not confident this is thread safe and such...     
     */
 
-    std::atomic<bool> complete(false);
-    std::thread t_read(f_read, sockfd, std::ref(complete));
-    std::thread t_write(f_write, sockfd, std::ref(complete));
+    std::thread t_read(f_read, sockfd);
+    std::thread t_write(f_write, sockfd);
     t_read.join();
     t_write.join();
 
