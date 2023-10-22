@@ -8,16 +8,38 @@
 #include <thread>
 #include <unistd.h>
 
+//Set ADDRESS to the server's public IP address
 #define ADDRESS "127.0.0.1"
 #define PORT "6160"
-#define BUF_SIZE 500
+#define BUF_SIZE 512
 
-/*  This is a flag to tell the read thread (working in f_read) to stop
-*   when the client is finished writing and would like to disconnect.
-*/
+class info{
+private:
+    char *nickname = new char[16];
+
+public:
+    char *get_nickname(){
+        return this->nickname;
+    }
+
+    void new_nickname(){
+        bool namecheck;
+
+        do{
+            printf("Nickname?: ");
+            scanf(" %[^\n]", this->nickname);
+            if((namecheck = strlen(this->nickname) < 3 || strlen(this->nickname) > 16))
+                printf("\nNickname must be 3-16 characters.\n");
+        }while(namecheck);
+    }
+
+    ~info(){
+        delete[] this->nickname;
+    }
+};
 
 void f_read(int sockfd){
-    char *rec = new char[BUF_SIZE + 1];
+    char *rec = new char[BUF_SIZE];
     int nread;
 
     /*
@@ -28,7 +50,7 @@ void f_read(int sockfd){
         memset(rec, 0, BUF_SIZE);
 
         if((nread = recv(sockfd, rec, BUF_SIZE, 0)) != -1 && strlen(rec) > 0){
-            if(strcmp(rec, "!Disconnect") == 0)
+            if(strcmp(rec, "!disconnect") == 0)
                 break;
             printf("[M]\t'%s'\n", rec);
         }else if(nread == -1){
@@ -41,35 +63,52 @@ void f_read(int sockfd){
     return;
 }
 
-void f_write(int sockfd){
-    char *mesg = new char[BUF_SIZE + 1];
+void f_write(int sockfd, info *client_info){
+    char *msg = new char[BUF_SIZE];
+
+    if(strlen(client_info->get_nickname()) != 0){
+        if(send(sockfd, "!setname", 8, 0) == -1)
+            fprintf(stderr, "[E]\tCould not set nickname!\n");
+
+        usleep(10000);
+
+        if(send(sockfd, client_info->get_nickname(), strlen(client_info->get_nickname()), 0) == -1)
+            fprintf(stderr, "[E]\tCould not set nickname!\n");
+    }
 
     while(1){
-        memset(mesg, 0, BUF_SIZE);
+        memset(msg, 0, BUF_SIZE);
         printf("Enter your message: ");
-        scanf(" %[^\n]", mesg);
+        scanf(" %[^\n]", msg);
         
         /*
         *   If connection is lost with the server, the
         *   client will only realize after the second
         *   message is not delivered...
         */
-        if(send(sockfd, mesg, strlen(mesg), 0) == -1)
+        if(send(sockfd, msg, strlen(msg), 0) == -1)
             fprintf(stderr, "[E]\tCould not send message.\n");
         
-        if(strcmp(mesg, "!Disconnect") == 0){
+        if(strcmp(msg, "!disconnect") == 0){
             printf("[D]\tDisconnecting!\n");
             break;
         }
+
+        if(strcmp(msg, "!setname") == 0){
+            client_info->new_nickname();
+            if(send(sockfd, client_info->get_nickname(), strlen(client_info->get_nickname()), 0) == -1)
+                fprintf(stderr, "[E]\tCould not set nickname!\n");
+        }
     }
     
-    delete[] mesg;
+    delete[] msg;
     return;
 }
 
 int main(int argc, char **argv){
     int sockfd, s;
     struct addrinfo hints, *result, *rp;
+    info *client_info = new info();
 
     /*
     Need for defining IP address of server later
@@ -78,6 +117,8 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
     */
+
+    client_info->new_nickname();
 
     memset(&hints, 0, sizeof(hints));
 
@@ -120,7 +161,7 @@ int main(int argc, char **argv){
     */
 
     std::thread t_read(f_read, sockfd);
-    std::thread t_write(f_write, sockfd);
+    std::thread t_write(f_write, sockfd, std::ref(client_info));
     t_read.join();
     t_write.join();
 

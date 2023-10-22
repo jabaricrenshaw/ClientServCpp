@@ -8,18 +8,20 @@
 #include <arpa/inet.h>
 
 #include <thread>
-#include <vector>
+#include <map>
 #include <random>
 #include <climits>
 
-#define BUF_SIZE 500
+#define BUF_SIZE 512
 #define PORT "6160"
 #define BACKLOG 0
 
 struct client{
     std::thread t;
-    char *name;
+    uintptr_t fd;
     uint16_t id;
+    char *nickname;
+    char *msg_mode;
 };
 
 void *get_in_addr(struct sockaddr *sa){
@@ -27,25 +29,40 @@ void *get_in_addr(struct sockaddr *sa){
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
-void f_read(int newfd, std::vector<struct client> &conn, int req){
+void f_read(int newfd, std::map<int, struct client> &conn, int cli_id){
     int nread;
-    char *rec = new char[BUF_SIZE + 1];
+    char *rec = new char[BUF_SIZE];
 
     while(1){
         memset(rec, 0, BUF_SIZE);
 
         if( (nread = recv(newfd, rec, BUF_SIZE, 0)) != -1 && strlen(rec) > 0){
-            if(strcmp(rec, "!Disconnect") == 0){
-                if(send(newfd, "!Disconnect", 11, 0) == -1)
+            //Need lookup table or switch case this somehow            
+            //Disconnect
+            if(strcmp(rec, "!disconnect") == 0){
+                if(send(newfd, "!disconnect", 11, 0) == -1)
                     fprintf(stderr, "[E]\tClient failed on disconnect.\n");
                 
-                for(size_t i = 0; i < conn.size(); ++i)
-                    if(conn[i].id == req) conn[i].id = 0;
-
+                conn[cli_id].id = 0;
+                
                 printf("[D]\tClient disconnected!\n");
                 break;
             }
-            printf("[M %d]\t'%s'\n", req, rec);
+
+            //Set name
+            if(strcmp(rec, "!setname") == 0){
+                memset(rec, 0, BUF_SIZE);
+                recv(newfd, rec, BUF_SIZE, 0);
+                strcpy(conn[cli_id].nickname, rec);
+                continue;
+            }
+
+            //Show message
+            if(strlen(conn[cli_id].nickname) == 0){
+                printf("[M %d]\t'%s'\n", cli_id, rec);
+            }else{
+                printf("[M %s]\t'%s'\n", conn[cli_id].nickname, rec);
+            }
         }else if(nread == -1){
             printf("[E]\tCould not read from client.\n");
         }
@@ -55,23 +72,43 @@ void f_read(int newfd, std::vector<struct client> &conn, int req){
     return;
 }
 
-void f_write(int newfd){
-    char *mesg = new char[BUF_SIZE + 1];
+void f_write(std::map<int, struct client> &conn){
+    char *msg = new char[BUF_SIZE];
 
-    printf("Made it to write thread");
+    while(1){
+        memset(msg, 0, BUF_SIZE);
 
-    delete[] mesg;
+        printf("Enter your message: ");
+        scanf(" %[^\n]", msg);
+
+        //Sends message to all connected clients
+        for(std::map<int, struct client>::iterator it = conn.begin(); it != conn.end(); ++it){
+            if(send(it->second.fd, msg, strlen(msg), 0) == -1)
+                fprintf(stderr, "[E]\tCould not send message(s).\n");
+        }
+    }
+
+    delete[] msg;
     return;
 }
 
 int main(int argc, char **argv){
+    char *cli_addr = new char[BUF_SIZE];
     struct addrinfo hints, *result, *rp;
     struct sockaddr_storage peer_addr;
     socklen_t peer_addrlen;
     int sockfd, newfd, s;
-    char *dbg = new char[BUF_SIZE + 1];
-    srand(time(NULL));
+
+    //conn holds info on connected clients for help in threads
+    std::map<int, struct client> conn;
+    //cli_id is the future id of clients in conn
+    uint16_t cli_id;
+    //"global" write thread that writes to all connected clients.
+    //Read threads are created individually for each client that connects
+    std::thread t_write;
     
+    srand(time(NULL));
+
     memset(&hints, 0, sizeof(hints));
 
     hints.ai_family = AF_UNSPEC; /* Allow IPV4 and IPV6 connections */
@@ -116,14 +153,6 @@ int main(int argc, char **argv){
     /************************
     * Read and write stage. *
     ************************/
-    
-    //Req is the future id of clients in conn
-    uint16_t req;
-    //vector holds info on connected clients for help in threads
-    std::vector<struct client> conn;
-    // Want to create a "global" write thread that writes to all connected clients.
-    std::thread t_write;
-
     while(1){
         printf("[I]\tWaiting for connections...\n");
 
@@ -134,41 +163,51 @@ int main(int argc, char **argv){
             continue;
         }
 
-        inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), dbg, INET6_ADDRSTRLEN);
-        printf("[I]\tNew connection from %s\n", dbg);
+        inet_ntop(peer_addr.ss_family, get_in_addr((struct sockaddr *) &peer_addr), cli_addr, INET6_ADDRSTRLEN);
+        printf("[I]\tNew connection from %s\n", cli_addr);
 
-        /*
+        
         if(!t_write.joinable()){
-            t_write = std::thread(f_write, newfd);
+            t_write = std::thread(f_write, std::ref(conn));
         }
-        */
-
-        for(std::vector<struct client>::iterator it = conn.begin(); it != conn.end(); ){
-            if(it->id == 0 && it->t.joinable()){
-                it->t.join();
+        
+        for(std::map<int, struct client>::iterator it = conn.begin(); it != conn.end(); ){
+            if(it->second.id == 0 && it->second.t.joinable()){
+                it->second.t.join();
                 it = conn.erase(it);
-            }else{
-                it++;
+                continue;
             }
+
+            it++;
         }
 
-        req = (rand() % UINT16_MAX + 100);
-        conn.emplace_back(client{ std::thread(f_read, newfd, std::ref(conn), req), dbg, req });
+        cli_id = (rand() % UINT16_MAX + 100);
+        conn[cli_id] = client{ std::thread(f_read, newfd, std::ref(conn),cli_id),
+                                (uintptr_t)newfd,
+                                cli_id,
+                                cli_addr,
+                                /* "global" */ };
+        
         /*
         Remove clients who are no longer connected.
-            DONE: Remove certain client from vector on explicit !Disconnect
+            DONE: Remove certain client from vector on explicit !disconnect
             Maybe polling using SYN/ACK idea will work.
         */
         printf("[I]\tNumber of connections (threads): %lu\n", conn.size());        
     }
 
-    for(auto &x : conn)
-        if(x.t.joinable()) x.t.join();
+    //Closing cleanup
+    for(std::map<int, struct client>::iterator it = conn.begin(); it != conn.end(); ++it){
+        if(it->second.t.joinable()) it->second.t.join();
+        if(send(it->second.fd, "!disconnect", 11, 0) == -1)
+            fprintf(stderr, "[E]\tClient(s) did not disconnect clean.\n");
+        close(it->second.fd);
+    }
 
     if(t_write.joinable())
         t_write.join();
 
-    delete[] dbg;
+    delete[] cli_addr;
     close(sockfd);
     free(result);
     free(rp);
