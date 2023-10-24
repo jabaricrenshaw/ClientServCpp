@@ -1,171 +1,191 @@
+#include <iostream>
+#include <cstring>
+#include <cstdlib>
+#include <unistd.h>
+#include <thread>
+#include <limits>
 #include <netdb.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <thread>
-#include <unistd.h>
-
-//Set ADDRESS to the server's public IP address
+#ifndef ADDRESS
 #define ADDRESS "127.0.0.1"
+#endif
+#ifndef PORT
 #define PORT "6160"
-#define BUF_SIZE 512
+#endif
+#ifndef BUF_SIZE
+#define BUF_SIZE 4096
+#endif
 
-class info{
+class info {
 private:
-    char *nickname = new char[16];
+	std::string nickname;
 
 public:
-    char *get_nickname(){
-        return this->nickname;
-    }
+	info(){
+		this->new_nickname();
+	}
 
-    void new_nickname(){
-        bool namecheck;
+	std::string get_nickname(){
+		return this->nickname;
+	}
 
-        do{
-            printf("Nickname?: ");
-            scanf(" %[^\n]", this->nickname);
-            if((namecheck = strlen(this->nickname) < 3 || strlen(this->nickname) > 16))
-                printf("\nNickname must be 3-16 characters.\n");
-        }while(namecheck);
-    }
+	void new_nickname(){
+		do{
+			std::cout << "Nickname?: ";
+			std::getline(std::cin, this->nickname);
+		}while(this->nickname.length() < 3 || this->nickname.length() > 16);
+	}
 
-    ~info(){
-        delete[] this->nickname;
-    }
+	~info(){ }
 };
 
 void f_read(int sockfd){
-    char *rec = new char[BUF_SIZE];
-    int nread;
+	std::string rec;
+	char *buf = new char[BUF_SIZE];
+	int nread;
 
-    /*
-    Note: recv(...) blocks inside of this thread, waiting for
-    message from server.
+	/*
+    *  	recv(...) blocks inside of this thread, waiting for
+    *	message from server.
     */
-    while(1){
-        memset(rec, 0, BUF_SIZE);
 
-        if((nread = recv(sockfd, rec, BUF_SIZE, 0)) != -1 && strlen(rec) > 0){
-            if(strcmp(rec, "!disconnect") == 0)
-                break;
-            printf("[M]\t'%s'\n", rec);
-        }else if(nread == -1){
-            fprintf(stderr, "Could not receive message.\n");
-        }
+	while(1){
+		memset(buf, 0, BUF_SIZE);
+		rec = "";
 
-    }
+		if((nread = recv(sockfd, buf, BUF_SIZE, 0)) != -1 && nread > 0){
+			rec = buf;
+			if(rec.compare("!disconnect") == 0)
+				break;
 
-    delete[] rec;
-    return;
+			std::cout << "[M]\t'" << rec << "'" << std::endl;
+		}else if(nread == -1){
+			std::cerr << "Could not receive message." << std::endl;
+		}
+	}
+	
+	delete[] buf;
+	return;
 }
 
 void f_write(int sockfd, info *client_info){
-    char *msg = new char[BUF_SIZE];
+	std::string msg;
+	char *buf = new char[BUF_SIZE];
 
-    if(strlen(client_info->get_nickname()) != 0){
-        if(send(sockfd, "!setname", 8, 0) == -1)
-            fprintf(stderr, "[E]\tCould not set nickname!\n");
+	if(client_info->get_nickname().length() == 0)
+		client_info->new_nickname();
 
-        usleep(10000);
+	if(send(sockfd, "!setname", 8, 0) == -1)
+		std::cerr << "[E]\tCould not set nickname!\n" << std::endl;
 
-        if(send(sockfd, client_info->get_nickname(), strlen(client_info->get_nickname()), 0) == -1)
-            fprintf(stderr, "[E]\tCould not set nickname!\n");
-    }
+	usleep(10000);
+	
+	strcpy(buf, client_info->get_nickname().c_str());
+	if(send(sockfd, buf, BUF_SIZE, 0) == -1)
+		std::cerr << "[E]\tCould not set nickname!\n" << std::endl;
+	
+	//std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+	while(1){
+		msg = "";
+		memset(buf, 0, BUF_SIZE);	
+		
+		std::cout << "Enter your message: ";
+		std::getline(std::cin, msg);
 
-    while(1){
-        memset(msg, 0, BUF_SIZE);
-        printf("Enter your message: ");
-        scanf(" %[^\n]", msg);
-        
-        /*
+		/*
         *   If connection is lost with the server, the
         *   client will only realize after the second
         *   message is not delivered...
         */
-        if(send(sockfd, msg, strlen(msg), 0) == -1)
-            fprintf(stderr, "[E]\tCould not send message.\n");
-        
-        if(strcmp(msg, "!disconnect") == 0){
-            printf("[D]\tDisconnecting!\n");
-            break;
-        }
 
-        if(strcmp(msg, "!setname") == 0){
-            client_info->new_nickname();
-            if(send(sockfd, client_info->get_nickname(), strlen(client_info->get_nickname()), 0) == -1)
-                fprintf(stderr, "[E]\tCould not set nickname!\n");
-        }
-    }
-    
-    delete[] msg;
-    return;
+		strcpy(buf, msg.substr(0, BUF_SIZE).c_str());
+		if(send(sockfd, buf, strlen(buf), 0) == -1)
+			std::cerr << "[E]\tCould not send message!" << std::endl;
+
+		if(strcmp(buf, "!disconnect") == 0){
+			std::cerr << "[I]\tDisconnecting!" << std::endl;
+			break;
+		}
+
+		if(strcmp(buf, "!setname") == 0){
+			client_info->new_nickname();
+			strcpy(buf, client_info->get_nickname().c_str());
+			if(send(sockfd, buf, strlen(buf), 0) == -1)
+				std::cerr << "[E]\tCould not set nickname!" << std::endl;
+		}
+	}
+	
+	delete[] buf;
+	return;
 }
 
-int main(int argc, char **argv){
-    int sockfd, s;
-    struct addrinfo hints, *result, *rp;
-    info *client_info = new info();
+int main(){
+	int sockfd, s;
+	struct addrinfo hints, *result, *rp;
+	info *client_info;
 
-    /*
-    Need for defining IP address of server later
-    if(argc != 2){
-        fprintf(stderr, "Usage is %s {HOSTNAME}.\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-    */
+	std::ios::sync_with_stdio(false);
+	//cin.tie(NULL);
 
-    client_info->new_nickname();
+	/*
+	 *	Need for defining IP address of server later (possibly port as well)
+	 *	if(argc != 2){
+	 *		std::cerr << "Usage is " << argv[0] << " {HOSTNAME}" << std::endl;
+	 *		exit(EXIT_FAILURE);
+	 *	}
+	*/
+	
+	client_info = new info();
 
-    memset(&hints, 0, sizeof(hints));
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = 0;
+	hints.ai_protocol = 0;
 
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
-    hints.ai_protocol = 0;
+	if((s = getaddrinfo(ADDRESS, PORT, &hints, &result)) != 0){
+		std::cerr << "getaddrinfo: " << gai_strerror(s) << std::endl;
+		exit(EXIT_FAILURE);
+	}
 
-    if((s = getaddrinfo(ADDRESS, PORT, &hints, &result)) != 0){
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-        exit(EXIT_FAILURE);
-    }
+	for(rp = result; rp != NULL; rp = rp->ai_next){
+		if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1)
+			continue;
 
-    for(rp = result; rp != NULL; rp = rp->ai_next){
-        if((sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) == -1)
-            continue;
+		if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1)
+			break;
 
-        if(connect(sockfd, rp->ai_addr, rp->ai_addrlen) != -1)
-            break;
+		close(sockfd);
+	}
 
-        close(sockfd);
-    }
+	freeaddrinfo(result);
 
-    freeaddrinfo(result);
+	if(rp == NULL){
+		std::cerr << "Could not connect to host." << std::endl;
+		exit(EXIT_FAILURE);
+	}
 
-    if(rp == NULL){
-        fprintf(stderr, "Could not connect.\n");
-        exit(EXIT_FAILURE);
-    }
+	std::cout << "Connected to " << ADDRESS << " on port " << PORT << std::endl;
 
-    printf("Connected to %s on port %s.\n", ADDRESS, PORT);
-    /****************************
+	/****************************
     *   Read and write stage.   *
     *****************************/
-    /*  I figured creating threads would allow
+    
+	/*  I figured creating threads would allow
     *   the client to read/write at the same time.
     *
     *   It works, 
     *   I am not confident this is thread safe and such...     
     */
 
-    std::thread t_read(f_read, sockfd);
-    std::thread t_write(f_write, sockfd, std::ref(client_info));
-    t_read.join();
-    t_write.join();
+	std::thread t_read(f_read, sockfd);
+	std::thread t_write(f_write, sockfd, std::ref(client_info));
+	t_read.join();
+	t_write.join();
 
-    close(sockfd);
-    
-    return 0;
+	close(sockfd);
+
+	return 0;
 }
