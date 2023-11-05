@@ -18,12 +18,12 @@
 #define BUF_SIZE 4096
 #endif
 
-class info {
+class cli_info {
 private:
 	std::string nickname;
 
 public:
-	info(){
+	cli_info(){
 		this->new_nickname();
 	}
 
@@ -38,7 +38,7 @@ public:
 		}while(this->nickname.length() < 3 || this->nickname.length() > 16);
 	}
 
-	~info(){ }
+	~cli_info(){ }
 };
 
 void f_read(int sockfd){
@@ -57,7 +57,7 @@ void f_read(int sockfd){
 
 		if((nread = recv(sockfd, buf, BUF_SIZE, 0)) != -1 && nread > 0){
 			rec = buf;
-			if(rec.compare("!disconnect") == 0)
+			if(rec == "!disconnect")
 				break;
 
 			std::cout << "[M]\t'" << rec << "'" << std::endl;
@@ -70,9 +70,10 @@ void f_read(int sockfd){
 	return;
 }
 
-void f_write(int sockfd, info *client_info){
+void f_write(int sockfd, cli_info *client_info){
 	std::string msg;
-	char *buf = new char[BUF_SIZE];
+	std::string temp;
+	//char *buf = new char[BUF_SIZE];
 
 	if(client_info->get_nickname().length() == 0)
 		client_info->new_nickname();
@@ -81,15 +82,17 @@ void f_write(int sockfd, info *client_info){
 		std::cerr << "[E]\tCould not set nickname!\n" << std::endl;
 
 	usleep(10000);
-	
-	strcpy(buf, client_info->get_nickname().c_str());
-	if(send(sockfd, buf, BUF_SIZE, 0) == -1)
+
+	//strcpy(buf, client_info->get_nickname().c_str());
+	temp = client_info->get_nickname().c_str();
+	if(send(sockfd, temp.c_str(), temp.size(), 0) == -1)
 		std::cerr << "[E]\tCould not set nickname!\n" << std::endl;
 	
 	//std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 	while(1){
+		temp = "";
 		msg = "";
-		memset(buf, 0, BUF_SIZE);	
+		//memset(buf, 0, BUF_SIZE);	
 		
 		std::cout << "Enter your message: ";
 		std::getline(std::cin, msg);
@@ -100,31 +103,31 @@ void f_write(int sockfd, info *client_info){
         *   message is not delivered...
         */
 
-		strcpy(buf, msg.substr(0, BUF_SIZE).c_str());
-		if(send(sockfd, buf, strlen(buf), 0) == -1)
+		//strcpy(buf, msg.substr(0, BUF_SIZE).c_str());
+		if(send(sockfd, msg.c_str(), msg.size(), 0) == -1)
 			std::cerr << "[E]\tCould not send message!" << std::endl;
 
-		if(strcmp(buf, "!disconnect") == 0){
+		if(msg == "!disconnect"){
 			std::cerr << "[I]\tDisconnecting!" << std::endl;
 			break;
 		}
 
-		if(strcmp(buf, "!setname") == 0){
+		if(msg == "!setname"){
 			client_info->new_nickname();
-			strcpy(buf, client_info->get_nickname().c_str());
-			if(send(sockfd, buf, strlen(buf), 0) == -1)
+			temp = client_info->get_nickname();
+			//strcpy(buf, client_info->get_nickname().c_str());
+			if(send(sockfd, temp.c_str(), temp.size(), 0) == -1)
 				std::cerr << "[E]\tCould not set nickname!" << std::endl;
 		}
 	}
 	
-	delete[] buf;
 	return;
 }
 
 int main(){
 	int sockfd, s;
 	struct addrinfo hints, *result, *rp;
-	info *client_info;
+	cli_info *client_info;
 
 	std::ios::sync_with_stdio(false);
 	//cin.tie(NULL);
@@ -137,7 +140,7 @@ int main(){
 	 *	}
 	*/
 	
-	client_info = new info();
+	client_info = new cli_info();
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -146,7 +149,7 @@ int main(){
 	hints.ai_protocol = 0;
 
 	if((s = getaddrinfo(ADDRESS, PORT, &hints, &result)) != 0){
-		std::cerr << "getaddrinfo: " << gai_strerror(s) << std::endl;
+		std::cerr << "getaddrcli_info: " << gai_strerror(s) << std::endl;
 		exit(EXIT_FAILURE);
 	}
 
@@ -184,7 +187,7 @@ int main(){
 	std::thread t_write(f_write, sockfd, std::ref(client_info));
 	t_read.join();
 	t_write.join();
-
+	
 	close(sockfd);
 
 	return 0;
